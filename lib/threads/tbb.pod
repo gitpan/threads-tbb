@@ -68,13 +68,16 @@ threads::tbb - interface to the Threading Building Blocks (TBB) API
 
 =head1 DESCRIPTION
 
-This module provides access to a few core TBB API functions to Perl
-programs.
+This module provides access to the a selection of Intel's Threading
+Building Blocks (TBB) library to Perl programs.  TBB is a C++ library
+that provides pre-tested, scalable algorithms for solving a number of
+common problems that benefit from parallelism.
 
-The algorithms employed by TBB are quite different to threads as
-provided by L<use threads;> - instead of directly starting threads and
-managing their activity and communication/synchronisation, an API is
-provided that provides I<data parallelism>;
+The API provided by TBB and this module is quite different to threads
+as provided by POSIX threads and L<use threads;> - instead of directly
+starting threads and managing their activity and
+communication/synchronisation, an API is provided that provides I<data
+parallelism>;
 
 =over
 
@@ -116,7 +119,11 @@ thread-affinitive task lists.  Other threads can come along and
 
 What this means is that it is relatively easy to make programs which
 can make best use of processing power available on newer multi-core
-CPUs.
+CPUs.  It also avoids per-thread overheads, to only start as many
+threads are required to use all of the parallelism in hardware.  Each
+thread requires its own C stack and complete Perl interpreter.
+Therefore it is generally not desirable to create more threads than
+the hardware has available.
 
 =head2 Worker Interpreters
 
@@ -223,8 +230,9 @@ modules yourself.
 
 =head1 METHODS
 
-These methods are available on I<body objects> which must first be
-obtained by methods on the C<threads::tbb> object.
+These methods are usually available on I<body objects> which must
+first be obtained by methods on the C<threads::tbb> object; some
+convenience wrappers incorporate this stage for you.
 
 =head2 parallel_for
 
@@ -273,34 +281,40 @@ where required, and pass references where the values came from the
 same interpreter.  There is more discussion of this on
 L<threads::tbb::concurrent>
 
-=head2 parallel_map#TODO
+=head2 map_list_func
 
-The calling convention of C<parallel_for> allows you to manually
-specify the "grain size" - the iterations required to to useful work.
-It also reduces time spent in function call overhead.  However, a
-simpler API could be possible:
+This planned API wraps the for_int_array_func body object for a
+map-like API.  The function must be static.
 
   use threads::tbb;
 
   my $tbb = threads::tbb->new;
 
-  my @output = $tbb->parallel_map(sub {
+  sub Some::Static::Func {
       my $val = shift;
       $val->frobnicate();
       return $val;
-  }, @input);
+  }
 
-This indicates use of the c<tbb::auto_partitioner()>, which presumably
-times how long it takes to process the block for given input sizes,
-and adjusts the size of the blocks accordingly.
+  my @result = $tbb->map_list_func('Some::Static::Func', @array);
 
-=head2 parallel_reduce#TODO
+The grain size for this operation defaults to 1.  See
+L<threads::tbb::blocked_int> for a discussion on what that refers to.
+It can be overridden by defining a scalar with the same name as the
+function, eg in the above example:
+
+  $Some::Static::Func = 3;   # process 3 items at a time
+
+It does not affect the calling convention; each call to the function
+named is passed a single item only.
+
+=head2 reduce_int_array_func#TODO
 
 Parallel_reduce is just C<parallel_for>, but with another function to
 combine results from the array at the end.
 
-To use parallel_reduce, you need to create a body function which has
-two methods.
+To use parallel_reduce via this API, you first create a body function
+which has two methods.
 
  # map/reduce
  use threads::tbb;
@@ -314,32 +328,58 @@ two methods.
  my $tbb = threads::tbb->new;
 
  # make a body object
- my $body = $tbb->reduce_int_array_sub(
+ my $body = $tbb->reduce_int_array_func(
      \@array,
-     sub {
-         my $range = shift;
+     __PACKAGE__.'::map_func',
+     __PACKAGE__.'::reduce_func',
+ );
 
-         # code may be executed in a thread.
-         # we now have exclusive use of
-         #   @array[$range->begin .. $range->end-1]
+ sub map_func {
+     my $array = shift;
+     my $range = shift;
+     # code may be executed in another thread.
+     # we now have exclusive use of
+     #  $array->[$range->begin .. $range->end-1]
+     my $price = 0;
+     for my $i ($range->begin .. $range->end-1) {
+         my $val = $array[$i];  # another lazy deep copy
 
-         my $price = 0;
-         for my $i ($range->begin .. $range->end-1) {
-             my $val = $array[$i];  # another lazy deep copy
-
-             $price += $val->compute_cost();
-         }
-         return $price;
-     },
-     sub {
-         # fold a value from a and b to a new value.
-         # lazy deep copies in and out.  Check b is not undef.
-         my ($a, $b) = @_;
-         return defined $b ? $a + $b : $a;
-     },
+         $price += $val->compute_cost();
+     }
+     return $price;
+ },
+ sub reduce_func {
+     my ($a, $b) = @_;
+     return defined $b ? $a + $b : $a;
  );
 
  $tbb->parallel_reduce($array_range, $body);
+
+ say "total is ", $body->result;
+
+=head2 map_reduce_list_func#TODO
+
+Just like B<map_list_func>, this is a convenience wrapper for
+C<reduce_int_array_func>.
+
+  use threads::tbb;
+
+  my $tbb = threads::tbb->new;
+
+  sub Some::Static::Func {
+      my $val = shift;
+      $val->frobnicate();
+      return $val;
+  }
+  sub Some::Static::reduction {
+      my ($a, $b) = @_;
+      return defined $b ? $a + $b : $a;
+  }
+
+  my $result = $tbb->map_reduce_list_func(
+         'Some::Static::Func', 'Some::Static::reduction',
+         @array
+  );
 
 =head2 pipeline / filter #TODO
 
@@ -412,6 +452,31 @@ geek reader.
 =head1 CHANGES
 
 =over
+
+=item B<version 0.03, July 7 2011>
+
+=over 4
+
+=item *
+
+New convenience wrapper for marking foreign XS object types as safely
+sharable between threads; see L<threads::tbb::refcounter>.
+
+=item *
+
+New map_list_func convenience API (wrapper for for_int_array_func);
+see L<threads::tbb/map_list_func>
+
+=item *
+
+Documentation enhancements
+
+=item *
+
+Memory leak fixes with containers: they now free their contents when
+they are freed.
+
+=back
 
 =item B<version 0.02, May 10 2011>
 

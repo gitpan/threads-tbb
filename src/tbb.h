@@ -48,9 +48,21 @@ public:
 	PerlInterpreter* owner;
         perl_concurrent_slot( ) : thingy(0) {};
 	perl_concurrent_slot( PerlInterpreter* owner, SV* thingy )
-		: thingy(thingy), owner(owner) {};
+		: thingy(thingy), owner(owner) {
+		IF_DEBUG_FREE("created self: %x, thingy = %x", this, thingy);
+	};
+	/* this causes some strange infinite loop...
+	~perl_concurrent_slot() {
+		if (thingy != 0) {
+			IF_DEBUG_FREE("freeing self: %x, thingy = %x", this, thingy);
+			this->free();
+			thingy = 0;
+		}
+	};
+	*/
 	SV* dup( pTHX ) const;    // get if same interpreter, clone otherwise
 	SV* clone( pTHX ) const;  // always clone
+	void free() const;
 };
 
 // same as perl_concurrent_slot, but with refcounting (so it can be
@@ -61,6 +73,9 @@ public:
 	perl_concurrent_item( ) : refcnt(0), perl_concurrent_slot() {};
 	perl_concurrent_item( PerlInterpreter* owner, SV* thingy )
 		: refcnt(0), perl_concurrent_slot(owner, thingy) {};
+	~perl_concurrent_item() {
+		this->free();
+	}
 };
 
 // threads::tbb::concurrent::array
@@ -68,6 +83,13 @@ class perl_concurrent_vector : public tbb::concurrent_vector<perl_concurrent_slo
 public:
 	int refcnt;
 	perl_concurrent_vector() : refcnt(0) {}
+	~perl_concurrent_vector() {
+		int size = this->size();
+		for (int i = 0; i < size; i++) {
+			perl_concurrent_slot* slot = &(*this)[i];
+			slot->free();
+		}
+	}
 };
 
 class cpp_hek {
@@ -105,6 +127,12 @@ class perl_concurrent_hash : public tbb::concurrent_hash_map<cpp_hek, perl_concu
 public:
 	int refcnt;
 	perl_concurrent_hash() : refcnt(0) {}
+	~perl_concurrent_hash() {
+		for( perl_concurrent_hash::const_iterator i=this->begin();
+		     i!=this->end(); ++i ) {
+			(*i).second.free();
+		}
+	}
 };
 
 typedef perl_concurrent_hash::const_accessor perl_concurrent_hash_reader;
@@ -169,6 +197,7 @@ perl_for_int_method( pTHX_ perl_tbb_init* context, SV* inv_sv, std::string metho
 	};
 	SV* get_invocant( pTHX_ int worker );
 	void operator()( const perl_tbb_blocked_int& r ) const;
+	void free();
 };
 
 // the crazy^Wlazy clone function :)

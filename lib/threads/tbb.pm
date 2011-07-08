@@ -1,11 +1,11 @@
 package threads::tbb;
 
 use 5.008;
-use strict;
+use strict 'vars', 'subs';
 use warnings;
 use Carp;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 require XSLoader;
 XSLoader::load('threads::tbb', $VERSION);
@@ -110,6 +110,42 @@ sub parallel_for {
 	my $allocator = shift and croak 'no allocator allowed yet';
 	# ... perhaps this should just be the public API.
 	$body->parallel_for($range);
+}
+
+sub map_list_func {
+	my $tbb = shift;
+	my $func = shift;
+	croak 'functions must be passed by name' if ref $func;
+	tie my @array, "threads::tbb::concurrent::array";
+	push @array, $func;
+	push @array, @_;
+	my $body = $tbb->for_int_array_func(
+		tied(@array), __PACKAGE__.'::_map_list_func_cb'
+	);
+	my $min = 1;
+	my $max = $#array;
+	my $chunk_size = defined $$func ? $$func : 1;
+#	print STDERR "using chunk size of $chunk_size\n";
+	my $range = threads::tbb::blocked_int->new(
+		$min, $max+1, $chunk_size,
+	);
+	$body->parallel_for($range);
+	my @rv;
+	for ( my $i = $min; $i <= $max; $i++ ) {
+		push @rv, @{ $array[$i] };
+	}
+	return @rv;
+}
+
+sub _map_list_func_cb {
+	my $subrange = shift;
+	my $array = shift;
+	my $func = $array->FETCH(0);
+	for (my $i = $subrange->begin; $i < $subrange->end; $i++ ) {
+		my $item = $array->FETCH($i);
+		my @rv = $func->($item);
+		$array->STORE($i, \@rv);
+	}
 }
 
 sub threads::tbb::init::CLONE_SKIP { 1 }
