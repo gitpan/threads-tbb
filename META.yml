@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               threads-tbb
-version:            0.03
+version:            0.04
 abstract:           interface to the Threading Building Blocks (TBB) API
 author:
     - Sam Vilain <sam.vilain@openparallel.com>

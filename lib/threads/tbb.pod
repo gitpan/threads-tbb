@@ -453,6 +453,16 @@ geek reader.
 
 =over
 
+=item B<version 0.04, July 8 2011>
+
+=over 4
+
+=item *
+
+Fix a dire installation/make bug in Makefile.PL
+
+=back
+
 =item B<version 0.03, July 7 2011>
 
 =over 4

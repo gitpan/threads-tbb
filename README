@@ -1,4 +1,4 @@
-threads::tbb version 0.02
+threads::tbb version 0.04
 =========================
 
 This is a very early alpha wrapper for the Intel Threading Building
@@ -16,6 +16,9 @@ To install this module type the following:
 
 See the installed perldoc for L<threads::tbb> for information on how
 to use the library.
+
+Currently you might experience some intermittent failures with test
+t/08-refcounter.t; this will hopefully be fixed in a later release.
 
 DEPENDENCIES
 

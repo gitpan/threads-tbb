@@ -42,7 +42,7 @@ my (@clean, @OBJECT, @LD_FROM, %XS, %PM);
     }
     for my $pm ( @pm ) {
 	my $inst = $pm;
-	$inst =~ s{^lib}{\$(INST_LIBDIR)};
+	$inst =~ s{^lib/threads}{\$(INST_LIBDIR)};
 	$PM{$pm} = $inst;
     }
 }
